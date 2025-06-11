@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types";
 import { z, ZodRawShape, ZodTypeAny } from "zod";
+import { writeFileSync, existsSync } from "fs";
+import path from "path";
 
 import { error, trace } from "./logger";
 import { AndroidRobot, AndroidDeviceManager } from "./android";
@@ -300,8 +302,10 @@ export const createMcpServer = (): McpServer => {
 	server.tool(
 		"mobile_take_screenshot",
 		"Take a screenshot of the mobile device. Use this to understand what's on screen, if you need to press an element that is available through view hierarchy then you must list elements on screen instead. Do not cache this result.",
-		{},
-		async ({}) => {
+		{
+			output_dir: z.string().optional().describe("Optional absolute path to directory where screenshot will be saved with timestamp filename. Host must ensure directory exists.")
+		},
+		async ({ output_dir }) => {
 			requireRobot();
 
 			try {
@@ -331,12 +335,41 @@ export const createMcpServer = (): McpServer => {
 					mimeType = "image/jpeg";
 				}
 
-				const screenshot64 = screenshot.toString("base64");
-				trace(`Screenshot taken: ${screenshot.length} bytes`);
+				if (output_dir) {
+					if (!path.isAbsolute(output_dir)) {
+						throw new ActionableError("output_dir must be an absolute path");
+					}
 
-				return {
-					content: [{ type: "image", data: screenshot64, mimeType }]
-				};
+					if (!existsSync(output_dir)) {
+						throw new ActionableError(`Output directory does not exist: ${output_dir}`);
+					}
+
+					const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+					const extension = mimeType === "image/jpeg" ? "jpg" : "png";
+					let filename = `screenshot-${timestamp}.${extension}`;
+					let filepath = path.join(output_dir, filename);
+
+					let counter = 1;
+					while (existsSync(filepath)) {
+						filename = `screenshot-${timestamp}-${counter}.${extension}`;
+						filepath = path.join(output_dir, filename);
+						counter++;
+					}
+
+					writeFileSync(filepath, screenshot);
+					trace(`Screenshot saved to: ${filepath}`);
+
+					return {
+						content: [{ type: "text", text: `Screenshot saved to: ${filepath}` }]
+					};
+				} else {
+					const screenshot64 = screenshot.toString("base64");
+					trace(`Screenshot taken: ${screenshot.length} bytes`);
+
+					return {
+						content: [{ type: "image", data: screenshot64, mimeType }]
+					};
+				}
 			} catch (err: any) {
 				error(`Error taking screenshot: ${err.message} ${err.stack}`);
 				return {
