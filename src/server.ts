@@ -3,6 +3,7 @@ import { CallToolResult } from "@modelcontextprotocol/sdk/types";
 import { z, ZodRawShape, ZodTypeAny } from "zod";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import { randomUUID } from "crypto";
 
 import { error, trace } from "./logger";
@@ -34,6 +35,24 @@ const checkForLatestAgentVersion = async (): Promise<void> => {
 	} catch (error: any) {
 		// ignore
 	}
+};
+
+const getScreenshotsDirectory = (): string => {
+	const cwd = process.cwd();
+
+	if (cwd === "/" || cwd === "\\") {
+		try {
+			const homeDir = os.homedir();
+			if (homeDir && homeDir !== "/" && homeDir !== "\\") {
+				return path.join(homeDir, ".screenshots");
+			}
+		} catch (error) {
+		}
+
+		return path.join(os.tmpdir(), ".screenshots");
+	}
+
+	return path.join(cwd, ".screenshots");
 };
 
 export const createMcpServer = (): McpServer => {
@@ -376,7 +395,7 @@ export const createMcpServer = (): McpServer => {
 
 	tool(
 		"mobile_save_screenshot",
-		"Take a screenshot of the mobile device and save it to a .screenshots folder in the current working directory with a UUID filename",
+		"Take a screenshot of the mobile device and save it to a .screenshots folder. Location: current working directory if reasonable, otherwise user home directory, or temp directory as fallback",
 		{},
 		async ({}) => {
 			requireRobot();
@@ -390,7 +409,7 @@ export const createMcpServer = (): McpServer => {
 				throw new ActionableError("Screenshot is invalid. Please try again.");
 			}
 
-			const screenshotsDir = path.join(process.cwd(), ".screenshots");
+			const screenshotsDir = getScreenshotsDirectory();
 			if (!fs.existsSync(screenshotsDir)) {
 				fs.mkdirSync(screenshotsDir, { recursive: true });
 			}
