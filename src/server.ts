@@ -1,6 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types";
 import { z, ZodRawShape, ZodTypeAny } from "zod";
+import * as fs from "fs";
+import * as path from "path";
+import { randomUUID } from "crypto";
 
 import { error, trace } from "./logger";
 import { AndroidRobot, AndroidDeviceManager } from "./android";
@@ -368,6 +371,37 @@ export const createMcpServer = (): McpServer => {
 			requireRobot();
 			const orientation = await robot!.getOrientation();
 			return `Current device orientation is ${orientation}`;
+		}
+	);
+
+	tool(
+		"mobile_save_screenshot",
+		"Take a screenshot of the mobile device and save it to a .screenshots folder in the current working directory with a UUID filename",
+		{},
+		async ({}) => {
+			requireRobot();
+
+			const screenshot = await robot!.getScreenshot();
+
+			// validate we received a png, will throw exception otherwise
+			const image = new PNG(screenshot);
+			const pngSize = image.getDimensions();
+			if (pngSize.width <= 0 || pngSize.height <= 0) {
+				throw new ActionableError("Screenshot is invalid. Please try again.");
+			}
+
+			const screenshotsDir = path.join(process.cwd(), ".screenshots");
+			if (!fs.existsSync(screenshotsDir)) {
+				fs.mkdirSync(screenshotsDir, { recursive: true });
+			}
+
+			const filename = `${randomUUID()}.png`;
+			const filepath = path.join(screenshotsDir, filename);
+
+			fs.writeFileSync(filepath, screenshot);
+
+			trace(`Screenshot saved: ${filepath} (${screenshot.length} bytes)`);
+			return `Screenshot saved to ${filepath}`;
 		}
 	);
 
