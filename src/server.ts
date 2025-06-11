@@ -47,9 +47,10 @@ const getScreenshotsDirectory = (): string => {
 				return path.join(homeDir, ".screenshots");
 			}
 		} catch (error) {
+			throw new ActionableError("Unable to determine home directory for screenshot storage. Please ensure the MCP server is running from a proper working directory.");
 		}
 
-		return path.join(os.tmpdir(), ".screenshots");
+		throw new ActionableError("Home directory is not available for screenshot storage. Please ensure the MCP server is running from a proper working directory.");
 	}
 
 	return path.join(cwd, ".screenshots");
