@@ -1,12 +1,9 @@
-import path from "path";
-import { tmpdir } from "os";
-import { randomBytes } from "crypto";
-import { readFileSync, unlinkSync } from "fs";
 import { execFileSync } from "child_process";
 import { Socket } from "net";
 
 import { WebDriverAgent } from "./webdriver-agent";
 import { ActionableError, Button, InstalledApp, Robot, ScreenSize, SwipeDirection, ScreenElement, Orientation } from "./robot";
+import { TempFileManager } from "./file-utils";
 
 const WDA_PORT = 8100;
 const IOS_TUNNEL_PORT = 60105;
@@ -173,11 +170,15 @@ export class IosRobot implements Robot {
 
 	public async getScreenshot(): Promise<Buffer> {
 		await this.assertTunnelRunning();
-		const tmpFilename = path.join(tmpdir(), `screenshot-${randomBytes(8).toString("hex")}.png`);
-		await this.ios("screenshot", "--output", tmpFilename);
-		const buffer = readFileSync(tmpFilename);
-		unlinkSync(tmpFilename);
-		return buffer;
+
+		return TempFileManager.withTempFile(
+			"screenshot",
+			"png",
+			async tmpFilename => {
+				await this.ios("screenshot", "--output", tmpFilename);
+				return TempFileManager.readTempFile(tmpFilename);
+			}
+		);
 	}
 
 	public async setOrientation(orientation: Orientation): Promise<void> {

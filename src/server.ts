@@ -1,16 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types";
 import { z, ZodRawShape, ZodTypeAny } from "zod";
-import { writeFileSync, existsSync } from "fs";
-import path from "path";
 
 import { error, trace } from "./logger";
 import { AndroidRobot, AndroidDeviceManager } from "./android";
 import { ActionableError, Robot } from "./robot";
 import { SimctlManager } from "./iphone-simulator";
 import { IosManager, IosRobot } from "./ios";
-import { PNG } from "./png";
-import { isImageMagickInstalled, Image } from "./image-utils";
+import { ScreenshotManager } from "./screenshot-utils";
 
 const getAgentVersion = (): string => {
 	const json = require("../package.json");
@@ -310,58 +307,19 @@ export const createMcpServer = (): McpServer => {
 
 			try {
 				const screenSize = await robot!.getScreenSize();
+				const screenshotBuffer = await robot!.getScreenshot();
 
-				let screenshot = await robot!.getScreenshot();
-				let mimeType = "image/png";
-
-				// validate we received a png, will throw exception otherwise
-				const image = new PNG(screenshot);
-				const pngSize = image.getDimensions();
-				if (pngSize.width <= 0 || pngSize.height <= 0) {
-					throw new ActionableError("Screenshot is invalid. Please try again.");
-				}
-
-				if (isImageMagickInstalled()) {
-					trace("ImageMagick is installed, resizing screenshot");
-					const image = Image.fromBuffer(screenshot);
-					const beforeSize = screenshot.length;
-					screenshot = image.resize(Math.floor(pngSize.width / screenSize.scale))
-						.jpeg({ quality: 75 })
-						.toBuffer();
-
-					const afterSize = screenshot.length;
-					trace(`Screenshot resized from ${beforeSize} bytes to ${afterSize} bytes`);
-
-					mimeType = "image/jpeg";
-				}
+				const { buffer: processedScreenshot, mimeType } = await ScreenshotManager.processScreenshot(
+					screenshotBuffer,
+					screenSize
+				);
 
 				if (output_dir) {
-					if (!path.isAbsolute(output_dir)) {
-						throw new ActionableError("output_dir must be an absolute path");
-					}
-
-					if (!existsSync(output_dir)) {
-						throw new ActionableError(`Output directory does not exist: ${output_dir}`);
-					}
-
-					const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-					const extension = mimeType === "image/jpeg" ? "jpg" : "png";
-					let filename = `screenshot-${timestamp}.${extension}`;
-					let filepath = path.join(output_dir, filename);
-
-					let counter = 1;
-					while (existsSync(filepath)) {
-						filename = `screenshot-${timestamp}-${counter}.${extension}`;
-						filepath = path.join(output_dir, filename);
-						counter++;
-					}
-
-					writeFileSync(filepath, screenshot);
-					trace(`Screenshot saved to: ${filepath}`);
+					ScreenshotManager.saveScreenshot(processedScreenshot, output_dir, mimeType);
 				}
 
-				const screenshot64 = screenshot.toString("base64");
-				trace(`Screenshot taken: ${screenshot.length} bytes`);
+				const screenshot64 = processedScreenshot.toString("base64");
+				trace(`Screenshot taken: ${processedScreenshot.length} bytes`);
 
 				return {
 					content: [{ type: "image", data: screenshot64, mimeType }]
