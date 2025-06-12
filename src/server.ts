@@ -358,18 +358,14 @@ export const createMcpServer = (): McpServer => {
 
 					writeFileSync(filepath, screenshot);
 					trace(`Screenshot saved to: ${filepath}`);
-
-					return {
-						content: [{ type: "text", text: `Screenshot saved to: ${filepath}` }]
-					};
-				} else {
-					const screenshot64 = screenshot.toString("base64");
-					trace(`Screenshot taken: ${screenshot.length} bytes`);
-
-					return {
-						content: [{ type: "image", data: screenshot64, mimeType }]
-					};
 				}
+
+				const screenshot64 = screenshot.toString("base64");
+				trace(`Screenshot taken: ${screenshot.length} bytes`);
+
+				return {
+					content: [{ type: "image", data: screenshot64, mimeType }]
+				};
 			} catch (err: any) {
 				error(`Error taking screenshot: ${err.message} ${err.stack}`);
 				return {
