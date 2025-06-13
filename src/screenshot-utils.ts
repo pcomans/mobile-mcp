@@ -33,6 +33,9 @@ export class ScreenshotManager {
 			const imageProcessor = Image.fromBuffer(screenshotBuffer);
 			const beforeSize = screenshotBuffer.length;
 
+			if (screenSize.scale === 0) {
+				throw new ActionableError("Screen size scale cannot be zero. Please check your configuration.");
+			}
 			processedBuffer = imageProcessor
 				.resize(Math.floor(pngSize.width / screenSize.scale))
 				.jpeg({ quality: 75 })
