@@ -19,6 +19,7 @@ export class TempFileManager {
 			try {
 				unlinkSync(filepath);
 			} catch (error) {
+				console.error(`Failed to delete temporary file: ${filepath}`, error);
 			}
 		}
 	}
