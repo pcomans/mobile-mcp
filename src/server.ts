@@ -314,16 +314,19 @@ export const createMcpServer = (): McpServer => {
 					screenSize
 				);
 
+				let savedFilePath: string | undefined;
 				if (output_dir) {
-					ScreenshotManager.saveScreenshot(processedScreenshot, output_dir, mimeType);
+					savedFilePath = ScreenshotManager.saveScreenshot(processedScreenshot, output_dir, mimeType);
 				}
 
 				const screenshot64 = processedScreenshot.toString("base64");
 				trace(`Screenshot taken: ${processedScreenshot.length} bytes`);
 
-				return {
-					content: [{ type: "image", data: screenshot64, mimeType }]
-				};
+				const content: any[] = [{ type: "image", data: screenshot64, mimeType }];
+				if (savedFilePath) {
+					content.push({ type: "text", text: `Screenshot saved to: ${savedFilePath}` });
+				}
+				return { content };
 			} catch (err: any) {
 				error(`Error taking screenshot: ${err.message} ${err.stack}`);
 				return {
