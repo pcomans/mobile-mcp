@@ -115,4 +115,19 @@ export interface Robot {
 	 * Get the current screen orientation.
 	 */
 	getOrientation(): Promise<Orientation>;
+
+	/**
+	 * Start audio recording on the device
+	 * @param outputPath Optional path where to save the recording on the device
+	 * @returns Promise resolving to the recording session info
+	 */
+	startAudioRecording(outputPath?: string): Promise<{ recordingId: string; devicePath: string }>;
+
+	/**
+	 * Stop audio recording and retrieve the file
+	 * @param recordingId The recording session ID from startAudioRecording
+	 * @param outputDir Directory to save the audio file locally
+	 * @returns Promise resolving to the local file path
+	 */
+	stopAudioRecording(recordingId: string, outputDir?: string): Promise<string>;
 }

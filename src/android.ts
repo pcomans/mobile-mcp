@@ -1,9 +1,11 @@
 import path from "path";
 import { execFileSync } from "child_process";
+import { promises as fs } from "fs";
 
 import * as xml from "fast-xml-parser";
 
 import { ActionableError, Button, InstalledApp, Robot, ScreenElement, ScreenElementRect, ScreenSize, SwipeDirection, Orientation } from "./robot";
+import { AudioManager } from "./screenshot-utils";
 
 export interface AndroidDevice {
 	deviceId: string;
@@ -229,6 +231,62 @@ export class AndroidRobot implements Robot {
 		const rotation = this.adb("shell", "settings", "get", "system", "user_rotation").toString().trim();
 		return rotation === "0" ? "portrait" : "landscape";
 	}
+
+	async startAudioRecording(outputPath?: string): Promise<{ recordingId: string; devicePath: string }> {
+		const recordingId = `audio_${Date.now()}`;
+		const devicePath = outputPath || `/sdcard/mobile_mcp_audio_${recordingId}.m4a`;
+
+		const recordIntent = [
+			"am", "start",
+			"-a", "android.provider.MediaStore.RECORD_SOUND",
+			"-d", `file://${devicePath}`,
+			"--ez", "android.intent.extra.QUICK_CAPTURE", "true"
+		];
+
+		try {
+			this.adb("shell", ...recordIntent);
+			this.activeRecordings = this.activeRecordings || new Map();
+			this.activeRecordings.set(recordingId, { devicePath, startTime: Date.now() });
+
+			return { recordingId, devicePath };
+		} catch (error) {
+			throw new ActionableError(`Failed to start audio recording: ${error}. Ensure the device has audio recording capabilities and permissions`);
+		}
+	}
+
+	async stopAudioRecording(recordingId: string, outputDir?: string): Promise<string> {
+		if (!this.activeRecordings?.has(recordingId)) {
+			throw new ActionableError(`No active recording found with ID: ${recordingId}. Make sure to call startAudioRecording first`);
+		}
+
+		const recording = this.activeRecordings.get(recordingId)!;
+
+		try {
+			this.adb("shell", "am", "force-stop", "com.android.soundrecorder");
+		} catch {
+		}
+
+		await new Promise(resolve => setTimeout(resolve, 1000));
+
+		const audioManager = new AudioManager(outputDir);
+		try {
+			this.adb("pull", recording.devicePath);
+			const localPath = path.basename(recording.devicePath);
+			const audioData = await fs.readFile(localPath);
+			await fs.unlink(localPath);
+
+			const finalPath = await audioManager.processAudioFile(audioData, recording.devicePath);
+
+			this.adb("shell", "rm", recording.devicePath);
+			this.activeRecordings.delete(recordingId);
+
+			return finalPath;
+		} catch (error) {
+			throw new ActionableError(`Failed to retrieve audio recording: ${error}. Check if the recording was saved properly on the device`);
+		}
+	}
+
+	private activeRecordings?: Map<string, { devicePath: string; startTime: number }>;
 
 	private async getUiAutomatorDump(): Promise<string> {
 		for (let tries = 0; tries < 10; tries++) {
