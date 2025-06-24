@@ -361,6 +361,33 @@ export const createMcpServer = (): McpServer => {
 		}
 	);
 
+	tool(
+		"mobile_start_audio_recording",
+		"Start audio recording on the selected mobile device (Android only)",
+		{
+			outputPath: z.string().optional().describe("Optional path where to save the recording on the device (default: /sdcard/mobile_mcp_audio_[timestamp].m4a)")
+		},
+		async ({ outputPath }) => {
+			requireRobot();
+			const result = await robot!.startAudioRecording(outputPath);
+			return `Audio recording started with ID: ${result.recordingId}\nDevice path: ${result.devicePath}\n\nUse mobile_stop_audio_recording with this ID to stop and retrieve the recording.`;
+		}
+	);
+
+	tool(
+		"mobile_stop_audio_recording",
+		"Stop audio recording and retrieve the audio file",
+		{
+			recordingId: z.string().describe("The recording session ID returned from mobile_start_audio_recording"),
+			outputDir: z.string().optional().describe("Optional directory to save the audio file locally (default: system temp directory)")
+		},
+		async ({ recordingId, outputDir }) => {
+			requireRobot();
+			const localPath = await robot!.stopAudioRecording(recordingId, outputDir);
+			return `Audio recording stopped and saved to: ${localPath}`;
+		}
+	);
+
 	// async check for latest agent version
 	checkForLatestAgentVersion().then();
 

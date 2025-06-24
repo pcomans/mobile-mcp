@@ -1,5 +1,6 @@
-import { writeFileSync, existsSync } from "fs";
+import { writeFileSync, existsSync, promises as fs } from "fs";
 import path from "path";
+import os from "os";
 import { PNG } from "./png";
 import { isImageMagickInstalled, Image } from "./image-utils";
 import { ActionableError, ScreenSize } from "./robot";
@@ -83,5 +84,36 @@ export class ScreenshotManager {
 		trace(`Screenshot saved to: ${filepath}`);
 
 		return filepath;
+	}
+}
+
+export class AudioManager {
+	private outputDir: string;
+
+	constructor(outputDir: string = path.join(os.tmpdir(), "mobile-mcp-audio")) {
+		this.outputDir = outputDir;
+	}
+
+	async processAudioFile(audioData: Buffer, devicePath: string): Promise<string> {
+		await this.ensureOutputDir();
+		const filename = this.generateFilename(devicePath);
+		const outputPath = path.join(this.outputDir, filename);
+
+		await fs.writeFile(outputPath, audioData);
+		return outputPath;
+	}
+
+	private generateFilename(devicePath: string): string {
+		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+		const extension = path.extname(devicePath) || ".m4a";
+		return `audio-${timestamp}${extension}`;
+	}
+
+	private async ensureOutputDir(): Promise<void> {
+		try {
+			await fs.access(this.outputDir);
+		} catch {
+			await fs.mkdir(this.outputDir, { recursive: true });
+		}
 	}
 }

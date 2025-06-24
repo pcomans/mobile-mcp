@@ -197,6 +197,14 @@ export class Simctl implements Robot {
 		const wda = await this.wda();
 		return wda.getOrientation();
 	}
+
+	async startAudioRecording(outputPath?: string): Promise<{ recordingId: string; devicePath: string }> {
+		throw new ActionableError("Audio recording is not supported on iOS simulators. iOS simulator audio recording is not available through simctl. Consider testing audio recording functionality on physical Android devices.");
+	}
+
+	async stopAudioRecording(recordingId: string, outputDir?: string): Promise<string> {
+		throw new ActionableError("Audio recording is not supported on iOS simulators. iOS simulator audio recording is not available through simctl. Consider testing audio recording functionality on physical Android devices.");
+	}
 }
 
 export class SimctlManager {

@@ -190,6 +190,14 @@ export class IosRobot implements Robot {
 		const wda = await this.wda();
 		return await wda.getOrientation();
 	}
+
+	async startAudioRecording(outputPath?: string): Promise<{ recordingId: string; devicePath: string }> {
+		throw new ActionableError("Audio recording is not supported on iOS devices. iOS audio recording requires app-level implementation that is not available through WebDriverAgent or go-ios. Consider using a dedicated recording app on the device.");
+	}
+
+	async stopAudioRecording(recordingId: string, outputDir?: string): Promise<string> {
+		throw new ActionableError("Audio recording is not supported on iOS devices. iOS audio recording requires app-level implementation that is not available through WebDriverAgent or go-ios. Consider using a dedicated recording app on the device.");
+	}
 }
 
 export class IosManager {
