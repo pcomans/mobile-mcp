@@ -91,6 +91,7 @@ export class AndroidRobot implements Robot {
 	}
 
 	public async listApps(): Promise<InstalledApp[]> {
+		// only apps that have a launcher activity are returned
 		return this.adb("shell", "cmd", "package", "query-activities", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
 			.toString()
 			.split("\n")
@@ -102,6 +103,14 @@ export class AndroidRobot implements Robot {
 				packageName,
 				appName: packageName,
 			}));
+	}
+
+	private async listPackages(): Promise<string[]> {
+		return this.adb("shell", "pm", "list", "packages")
+			.toString()
+			.split("\n")
+			.filter(line => line.startsWith("package:"))
+			.map(line => line.substring("package:".length));
 	}
 
 	public async launchApp(packageName: string): Promise<void> {
@@ -120,7 +129,6 @@ export class AndroidRobot implements Robot {
 	public async swipe(direction: SwipeDirection): Promise<void> {
 		const screenSize = await this.getScreenSize();
 		const centerX = screenSize.width >> 1;
-		// const centerY = screenSize[1] >> 1;
 
 		let x0: number, y0: number, x1: number, y1: number;
 
@@ -134,6 +142,55 @@ export class AndroidRobot implements Robot {
 				x0 = x1 = centerX;
 				y0 = Math.floor(screenSize.height * 0.20);
 				y1 = Math.floor(screenSize.height * 0.80);
+				break;
+			case "left":
+				x0 = Math.floor(screenSize.width * 0.80);
+				x1 = Math.floor(screenSize.width * 0.20);
+				y0 = y1 = Math.floor(screenSize.height * 0.50);
+				break;
+			case "right":
+				x0 = Math.floor(screenSize.width * 0.20);
+				x1 = Math.floor(screenSize.width * 0.80);
+				y0 = y1 = Math.floor(screenSize.height * 0.50);
+				break;
+			default:
+				throw new ActionableError(`Swipe direction "${direction}" is not supported`);
+		}
+
+		this.adb("shell", "input", "swipe", `${x0}`, `${y0}`, `${x1}`, `${y1}`, "1000");
+	}
+
+	public async swipeFromCoordinate(x: number, y: number, direction: SwipeDirection, distance?: number): Promise<void> {
+		const screenSize = await this.getScreenSize();
+
+		let x0: number, y0: number, x1: number, y1: number;
+
+		// Use provided distance or default to 30% of screen dimension
+		const defaultDistanceY = Math.floor(screenSize.height * 0.3);
+		const defaultDistanceX = Math.floor(screenSize.width * 0.3);
+		const swipeDistanceY = distance || defaultDistanceY;
+		const swipeDistanceX = distance || defaultDistanceX;
+
+		switch (direction) {
+			case "up":
+				x0 = x1 = x;
+				y0 = y;
+				y1 = Math.max(0, y - swipeDistanceY);
+				break;
+			case "down":
+				x0 = x1 = x;
+				y0 = y;
+				y1 = Math.min(screenSize.height, y + swipeDistanceY);
+				break;
+			case "left":
+				x0 = x;
+				x1 = Math.max(0, x - swipeDistanceX);
+				y0 = y1 = y;
+				break;
+			case "right":
+				x0 = x;
+				x1 = Math.min(screenSize.width, x + swipeDistanceX);
+				y0 = y1 = y;
 				break;
 			default:
 				throw new ActionableError(`Swipe direction "${direction}" is not supported`);
@@ -200,10 +257,40 @@ export class AndroidRobot implements Robot {
 		this.adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url);
 	}
 
+	private isAscii(text: string): boolean {
+		return /^[\x00-\x7F]*$/.test(text);
+	}
+
+	private async isDeviceKitInstalled(): Promise<boolean> {
+		const packages = await this.listPackages();
+		return packages.includes("com.mobilenext.devicekit");
+	}
+
 	public async sendKeys(text: string): Promise<void> {
-		// adb shell requires some escaping
-		const _text = text.replace(/ /g, "\\ ");
-		this.adb("shell", "input", "text", _text);
+		if (text === "") {
+			// bailing early, so we don't run adb shell with empty string.
+			// this happens when you prompt with a simple "submit".
+			return;
+		}
+
+		if (this.isAscii(text)) {
+			// adb shell input only supports ascii characters. and
+			// some of the keys have to be escaped.
+			const _text = text.replace(/ /g, "\\ ");
+			this.adb("shell", "input", "text", _text);
+		} else if (await this.isDeviceKitInstalled()) {
+			// try sending over clipboard
+			const base64 = Buffer.from(text).toString("base64");
+
+			// send clipboard over and immediately paste it
+			this.adb("shell", "am", "broadcast", "-a", "devicekit.clipboard.set", "-e", "encoding", "base64", "-e", "text", base64, "-n", "com.mobilenext.devicekit/.ClipboardBroadcastReceiver");
+			this.adb("shell", "input", "keyevent", "KEYCODE_PASTE");
+
+			// clear clipboard when we're done
+			this.adb("shell", "am", "broadcast", "-a", "devicekit.clipboard.clear", "-n", "com.mobilenext.devicekit/.ClipboardBroadcastReceiver");
+		} else {
+			throw new ActionableError("Non-ASCII text is not supported on Android, please install mobilenext devicekit, see https://github.com/mobile-next/devicekit-android");
+		}
 	}
 
 	public async pressButton(button: Button) {
@@ -221,8 +308,9 @@ export class AndroidRobot implements Robot {
 	public async setOrientation(orientation: Orientation): Promise<void> {
 		const orientationValue = orientation === "portrait" ? 0 : 1;
 
-		this.adb("shell", "content", "insert", "--uri", "content://settings/system", "--bind", "name:s:user_rotation", "--bind", `value:i:${orientationValue}`);
+		// disable auto-rotation prior to setting the orientation
 		this.adb("shell", "settings", "put", "system", "accelerometer_rotation", "0");
+		this.adb("shell", "content", "insert", "--uri", "content://settings/system", "--bind", "name:s:user_rotation", "--bind", `value:i:${orientationValue}`);
 	}
 
 	public async getOrientation(): Promise<Orientation> {
@@ -241,7 +329,7 @@ export class AndroidRobot implements Robot {
 				continue;
 			}
 
-			return dump;
+			return dump.substring(dump.indexOf("<?xml"));
 		}
 
 		throw new ActionableError("Failed to get UIAutomator XML");

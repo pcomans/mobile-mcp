@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types";
 import { z, ZodRawShape, ZodTypeAny } from "zod";
+import fs from "node:fs";
+import crypto from "node:crypto";
 
 import { error, trace } from "./logger";
 import { AndroidRobot, AndroidDeviceManager } from "./android";
@@ -9,7 +11,7 @@ import { SimctlManager } from "./iphone-simulator";
 import { IosManager, IosRobot } from "./ios";
 import { ScreenshotManager } from "./screenshot-utils";
 
-const getAgentVersion = (): string => {
+export const getAgentVersion = (): string => {
 	const json = require("../package.json");
 	return json.version;
 };
@@ -43,6 +45,9 @@ export const createMcpServer = (): McpServer => {
 		},
 	});
 
+	// an empty object to satisfy windsurf
+	const noParams = z.object({});
+
 	const tool = (name: string, description: string, paramsSchema: ZodRawShape, cb: (args: z.objectOutputType<ZodRawShape, ZodTypeAny>) => Promise<string>) => {
 		const wrappedCb = async (args: ZodRawShape): Promise<CallToolResult> => {
 			try {
@@ -71,6 +76,29 @@ export const createMcpServer = (): McpServer => {
 		server.tool(name, description, paramsSchema, args => wrappedCb(args));
 	};
 
+	const posthog = (event: string, properties: Record<string, string>) => {
+		const url = "https://us.i.posthog.com/i/v0/e/";
+		const api_key = process.env.POSTHOG_API_KEY || "";
+		const distinct_id = crypto.createHash("sha256").update(process.execPath).digest("hex");
+		fetch(url, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json"
+			},
+			body: JSON.stringify({
+				api_key,
+				event,
+				properties,
+				distinct_id,
+			})
+		}).then().catch();
+	};
+
+	posthog("launch", {
+		Product: "mobile-mcp",
+		Version: getAgentVersion(),
+	});
+
 	let robot: Robot | null;
 	const simulatorManager = new SimctlManager();
 
@@ -81,14 +109,53 @@ export const createMcpServer = (): McpServer => {
 	};
 
 	tool(
+		"mobile_use_default_device",
+		"Use the default device. This is a shortcut for mobile_use_device with deviceType=simulator and device=simulator_name",
+		{
+			noParams
+		},
+		async () => {
+			const iosManager = new IosManager();
+			const androidManager = new AndroidDeviceManager();
+			const simulators = simulatorManager.listBootedSimulators();
+			const androidDevices = androidManager.getConnectedDevices();
+			const iosDevices = iosManager.listDevices();
+
+			const sum = simulators.length + androidDevices.length + iosDevices.length;
+			if (sum === 0) {
+				throw new ActionableError("No devices found. Please connect a device and try again.");
+			} else if (sum >= 2) {
+				throw new ActionableError("Multiple devices found. Please use the mobile_list_available_devices tool to list available devices and select one.");
+			}
+
+			// only one device connected, let's find it now
+			if (simulators.length === 1) {
+				robot = simulatorManager.getSimulator(simulators[0].name);
+				return `Selected default device: ${simulators[0].name}`;
+			} else if (androidDevices.length === 1) {
+				robot = new AndroidRobot(androidDevices[0].deviceId);
+				return `Selected default device: ${androidDevices[0].deviceId}`;
+			} else if (iosDevices.length === 1) {
+				robot = new IosRobot(iosDevices[0].deviceId);
+				return `Selected default device: ${iosDevices[0].deviceId}`;
+			}
+
+			// how did this happen?
+			throw new ActionableError("No device selected. Please use the mobile_list_available_devices tool to list available devices and select one.");
+		}
+	);
+
+	tool(
 		"mobile_list_available_devices",
 		"List all available devices. This includes both physical devices and simulators. If there is more than one device returned, you need to let the user select one of them.",
-		{},
+		{
+			noParams
+		},
 		async ({}) => {
 			const iosManager = new IosManager();
 			const androidManager = new AndroidDeviceManager();
-			const devices = simulatorManager.listBootedSimulators();
-			const simulatorNames = devices.map(d => d.name);
+			const simulators = simulatorManager.listBootedSimulators();
+			const simulatorNames = simulators.map(d => d.name);
 			const androidDevices = androidManager.getConnectedDevices();
 			const iosDevices = await iosManager.listDevices();
 			const iosDeviceNames = iosDevices.map(d => d.deviceId);
@@ -143,7 +210,9 @@ export const createMcpServer = (): McpServer => {
 	tool(
 		"mobile_list_apps",
 		"List all the installed apps on the device",
-		{},
+		{
+			noParams
+		},
 		async ({}) => {
 			requireRobot();
 			const result = await robot!.listApps();
@@ -180,7 +249,9 @@ export const createMcpServer = (): McpServer => {
 	tool(
 		"mobile_get_screen_size",
 		"Get the screen size of the mobile device in pixels",
-		{},
+		{
+			noParams
+		},
 		async ({}) => {
 			requireRobot();
 			const screenSize = await robot!.getScreenSize();
@@ -190,7 +261,7 @@ export const createMcpServer = (): McpServer => {
 
 	tool(
 		"mobile_click_on_screen_at_coordinates",
-		"Click on the screen at given x,y coordinates",
+		"Click on the screen at given x,y coordinates. If clicking on an element, use the list_elements_on_screen tool to find the coordinates.",
 		{
 			x: z.number().describe("The x coordinate to click on the screen, in pixels"),
 			y: z.number().describe("The y coordinate to click on the screen, in pixels"),
@@ -206,6 +277,7 @@ export const createMcpServer = (): McpServer => {
 		"mobile_list_elements_on_screen",
 		"List elements on screen and their coordinates, with display text or accessibility label. Do not cache this result.",
 		{
+			noParams
 		},
 		async ({}) => {
 			requireRobot();
@@ -268,12 +340,24 @@ export const createMcpServer = (): McpServer => {
 		"swipe_on_screen",
 		"Swipe on the screen",
 		{
-			direction: z.enum(["up", "down"]).describe("The direction to swipe"),
+			direction: z.enum(["up", "down", "left", "right"]).describe("The direction to swipe"),
+			x: z.number().optional().describe("The x coordinate to start the swipe from, in pixels. If not provided, uses center of screen"),
+			y: z.number().optional().describe("The y coordinate to start the swipe from, in pixels. If not provided, uses center of screen"),
+			distance: z.number().optional().describe("The distance to swipe in pixels. Defaults to 400 pixels for iOS or 30% of screen dimension for Android"),
 		},
-		async ({ direction }) => {
+		async ({ direction, x, y, distance }) => {
 			requireRobot();
-			await robot!.swipe(direction);
-			return `Swiped ${direction} on screen`;
+
+			if (x !== undefined && y !== undefined) {
+				// Use coordinate-based swipe
+				await robot!.swipeFromCoordinate(x, y, direction, distance);
+				const distanceText = distance ? ` ${distance} pixels` : "";
+				return `Swiped ${direction}${distanceText} from coordinates: ${x}, ${y}`;
+			} else {
+				// Use center-based swipe
+				await robot!.swipe(direction);
+				return `Swiped ${direction} on screen`;
+			}
 		}
 	);
 
@@ -293,6 +377,21 @@ export const createMcpServer = (): McpServer => {
 			}
 
 			return `Typed text: ${text}`;
+		}
+	);
+
+	tool(
+		"mobile_save_screenshot",
+		"Save a screenshot of the mobile device to a file",
+		{
+			saveTo: z.string().describe("The path to save the screenshot to"),
+		},
+		async ({ saveTo }) => {
+			requireRobot();
+
+			const screenshot = await robot!.getScreenshot();
+			fs.writeFileSync(saveTo, screenshot);
+			return `Screenshot saved to: ${saveTo}`;
 		}
 	);
 
@@ -353,7 +452,9 @@ export const createMcpServer = (): McpServer => {
 	tool(
 		"mobile_get_orientation",
 		"Get the current screen orientation of the device",
-		{},
+		{
+			noParams
+		},
 		async () => {
 			requireRobot();
 			const orientation = await robot!.getOrientation();
