@@ -58,7 +58,9 @@ export class Simctl implements Robot {
 	}
 
 	public async getScreenshot(): Promise<Buffer> {
-		return this.simctl("io", this.simulatorUuid, "screenshot", "-");
+		const wda = await this.wda();
+		return await wda.getScreenshot();
+		// alternative: return this.simctl("io", this.simulatorUuid, "screenshot", "-");
 	}
 
 	public async openUrl(url: string) {
@@ -75,84 +77,14 @@ export class Simctl implements Robot {
 		this.simctl("terminate", this.simulatorUuid, packageName);
 	}
 
-	public static parseIOSAppData(inputText: string): Array<AppInfo> {
-		const result: Array<AppInfo> = [];
-
-		enum ParseState {
-			LOOKING_FOR_APP,
-			IN_APP,
-			IN_PROPERTY
-		}
-
-		let state = ParseState.LOOKING_FOR_APP;
-		let currentApp: Partial<AppInfo> = {};
-		let appIdentifier = "";
-
-		const lines = inputText.split("\n");
-		for (let line of lines) {
-			line = line.trim();
-			if (line === "") {
-				continue;
-			}
-
-			switch (state) {
-				case ParseState.LOOKING_FOR_APP:
-					// look for app identifier pattern: "com.example.app" = {
-					const appMatch = line.match(/^"?([^"=]+)"?\s*=\s*\{/);
-					if (appMatch) {
-						appIdentifier = appMatch[1].trim();
-						currentApp = {
-							CFBundleIdentifier: appIdentifier,
-						};
-
-						state = ParseState.IN_APP;
-					}
-					break;
-
-				case ParseState.IN_APP:
-					if (line === "};") {
-						result.push(currentApp as AppInfo);
-						currentApp = {};
-						state = ParseState.LOOKING_FOR_APP;
-					} else {
-						// look for property: PropertyName = Value;
-						const propertyMatch = line.match(/^([^=]+)\s*=\s*(.+?);\s*$/);
-						if (propertyMatch) {
-							const propName = propertyMatch[1].trim();
-							let propValue = propertyMatch[2].trim();
-
-							// remove quotes if present (they're optional)
-							if (propValue.startsWith('"') && propValue.endsWith('"')) {
-								propValue = propValue.substring(1, propValue.length - 1);
-							}
-
-							// add property to current app
-							(currentApp as any)[propName] = propValue;
-						} else if (line.endsWith("{")) {
-							// nested property like GroupContainers = {
-							state = ParseState.IN_PROPERTY;
-						}
-					}
-					break;
-
-				case ParseState.IN_PROPERTY:
-					if (line === "};") {
-						// end of nested property
-						state = ParseState.IN_APP;
-					}
-
-					// skip content of nested properties, we don't care of those right now
-					break;
-			}
-		}
-
-		return result;
-	}
-
 	public async listApps(): Promise<InstalledApp[]> {
 		const text = this.simctl("listapps", this.simulatorUuid).toString();
-		const apps = Simctl.parseIOSAppData(text);
-		return apps.map(app => ({
+		const result = execFileSync("plutil", ["-convert", "json", "-o", "-", "-r", "-"], {
+			input: text,
+		});
+
+		const output = JSON.parse(result.toString()) as Record<string, AppInfo>;
+		return Object.values(output).map(app => ({
 			packageName: app.CFBundleIdentifier,
 			appName: app.CFBundleDisplayName,
 		}));
@@ -168,9 +100,14 @@ export class Simctl implements Robot {
 		return wda.sendKeys(keys);
 	}
 
-	public async swipe(direction: SwipeDirection) {
+	public async swipe(direction: SwipeDirection): Promise<void> {
 		const wda = await this.wda();
 		return wda.swipe(direction);
+	}
+
+	public async swipeFromCoordinate(x: number, y: number, direction: SwipeDirection, distance?: number): Promise<void> {
+		const wda = await this.wda();
+		return wda.swipeFromCoordinate(x, y, direction, distance);
 	}
 
 	public async tap(x: number, y: number) {
