@@ -197,7 +197,7 @@ describe("iphone-simulator", () => {
 					"group.com.apple.bridge" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/F6E42206-B548-4F83-AB13-6E5BD7D69AB0/";
 					"group.com.apple.iBooks" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/EEBEC72A-6673-446A-AB31-E154AB850B69/";
 					"group.com.apple.mail" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/C3339457-EB6A-46D1-92A3-AE398DA8CAC5/";
-					"group.com.apple.stocks" = "file:///Library/Developer/repos/mobile-mcp/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/50E3741D-E249-421F-83E8-24A896A1245B/";
+					"group.com.apple.stocks" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/50E3741D-E249-421F-83E8-24A896A1245B/";
 					"group.com.apple.weather" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/28D40933-57F1-4B65-864F-1F6538B3ADF9/";
 				};
 				Path = "/Library/Developer/CoreSimulator/Volumes/iOS_22D8075/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 18.3.simruntime/Contents/Resources/RuntimeRoot/Applications/Bridge.app";
