@@ -197,7 +197,7 @@ describe("iphone-simulator", () => {
 					"group.com.apple.bridge" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/F6E42206-B548-4F83-AB13-6E5BD7D69AB0/";
 					"group.com.apple.iBooks" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/EEBEC72A-6673-446A-AB31-E154AB850B69/";
 					"group.com.apple.mail" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/C3339457-EB6A-46D1-92A3-AE398DA8CAC5/";
-					"group.com.apple.stocks" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/50E3741D-E249-421F-83E8-24A896A1245B/";
+					"group.com.apple.stocks" = "file:///Library/Developer/repos/mobile-mcp/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/50E3741D-E249-421F-83E8-24A896A1245B/";
 					"group.com.apple.weather" = "file:///Library/Developer/CoreSimulator/Devices/FB9D9985-8FD0-493D-9B09-58FD3AA4BE65/data/Containers/Shared/AppGroup/28D40933-57F1-4B65-864F-1F6538B3ADF9/";
 				};
 				Path = "/Library/Developer/CoreSimulator/Volumes/iOS_22D8075/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 18.3.simruntime/Contents/Resources/RuntimeRoot/Applications/Bridge.app";
@@ -213,5 +213,63 @@ describe("iphone-simulator", () => {
 		assert.equal(apps[0].CFBundleDisplayName, "WebDriverAgentRunner-Runner");
 		assert.equal(apps[1].CFBundleDisplayName, "Sample1");
 		assert.equal(apps[1].CFBundleName, "Sample{1}App");
+	});
+
+	it("should be able to get current orientation", async function() {
+		hasOneSimulator || this.skip();
+		const orientation = await simctl.getOrientation();
+		assert.ok(orientation === "portrait" || orientation === "landscape", `Expected portrait or landscape, got ${orientation}`);
+	});
+
+	it("should be able to set orientation to portrait", async function() {
+		hasOneSimulator || this.skip();
+		await simctl.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for orientation change
+		const orientation = await simctl.getOrientation();
+		assert.equal(orientation, "portrait", "Simulator should be in portrait orientation");
+	});
+
+	it("should be able to set orientation to landscape", async function() {
+		hasOneSimulator || this.skip();
+		await simctl.setOrientation("landscape");
+		await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for orientation change
+		const orientation = await simctl.getOrientation();
+		assert.equal(orientation, "landscape", "Simulator should be in landscape orientation");
+	});
+
+	it("should be able to switch between orientations", async function() {
+		hasOneSimulator || this.skip();
+
+		await simctl.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		let orientation = await simctl.getOrientation();
+		assert.equal(orientation, "portrait", "Simulator should be in portrait orientation");
+
+		await simctl.setOrientation("landscape");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		orientation = await simctl.getOrientation();
+		assert.equal(orientation, "landscape", "Simulator should be in landscape orientation");
+
+		await simctl.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		orientation = await simctl.getOrientation();
+		assert.equal(orientation, "portrait", "Simulator should be back in portrait orientation");
+	});
+
+	it("should maintain orientation across app launches", async function() {
+		hasOneSimulator || this.skip();
+
+		await simctl.setOrientation("landscape");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+
+		await restartPreferencesApp();
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		await simctl.terminateApp("com.apple.Preferences");
+
+		const orientation = await simctl.getOrientation();
+		assert.equal(orientation, "landscape", "Orientation should persist across app launches");
+
+		await simctl.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000));
 	});
 });

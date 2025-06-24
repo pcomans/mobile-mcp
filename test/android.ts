@@ -111,4 +111,62 @@ describe("android", () => {
 		const processes2 = await android.listRunningProcesses();
 		assert.ok(!processes2.includes("com.android.chrome"));
 	});
+
+	it("should be able to get current orientation", async function() {
+		hasOneAndroidDevice || this.skip();
+		const orientation = await android.getOrientation();
+		assert.ok(orientation === "portrait" || orientation === "landscape", `Expected portrait or landscape, got ${orientation}`);
+	});
+
+	it("should be able to set orientation to portrait", async function() {
+		hasOneAndroidDevice || this.skip();
+		await android.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for orientation change
+		const orientation = await android.getOrientation();
+		assert.equal(orientation, "portrait", "Device should be in portrait orientation");
+	});
+
+	it("should be able to set orientation to landscape", async function() {
+		hasOneAndroidDevice || this.skip();
+		await android.setOrientation("landscape");
+		await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for orientation change
+		const orientation = await android.getOrientation();
+		assert.equal(orientation, "landscape", "Device should be in landscape orientation");
+	});
+
+	it("should be able to switch between orientations", async function() {
+		hasOneAndroidDevice || this.skip();
+
+		await android.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		let orientation = await android.getOrientation();
+		assert.equal(orientation, "portrait", "Device should be in portrait orientation");
+
+		await android.setOrientation("landscape");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		orientation = await android.getOrientation();
+		assert.equal(orientation, "landscape", "Device should be in landscape orientation");
+
+		await android.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		orientation = await android.getOrientation();
+		assert.equal(orientation, "portrait", "Device should be back in portrait orientation");
+	});
+
+	it("should maintain orientation across app launches", async function() {
+		hasOneAndroidDevice || this.skip();
+
+		await android.setOrientation("landscape");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+
+		await android.launchApp("com.android.settings");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+		await android.terminateApp("com.android.settings");
+
+		const orientation = await android.getOrientation();
+		assert.equal(orientation, "landscape", "Orientation should persist across app launches");
+
+		await android.setOrientation("portrait");
+		await new Promise(resolve => setTimeout(resolve, 2000));
+	});
 });
