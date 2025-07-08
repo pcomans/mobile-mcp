@@ -1,5 +1,6 @@
-import { execFileSync } from "child_process";
+import { execFileSync } from "node:child_process";
 
+import { trace } from "./logger";
 import { WebDriverAgent } from "./webdriver-agent";
 import { ActionableError, Button, InstalledApp, Robot, ScreenElement, ScreenSize, SwipeDirection, Orientation } from "./robot";
 
@@ -40,11 +41,50 @@ export class Simctl implements Robot {
 
 	constructor(private readonly simulatorUuid: string) {}
 
+	private async isWdaInstalled(): Promise<boolean> {
+		const apps = await this.listApps();
+		return apps.map(app => app.packageName).includes("com.facebook.WebDriverAgentRunner.xctrunner");
+	}
+
+	private async startWda(): Promise<void> {
+		if (!(await this.isWdaInstalled())) {
+			// wda is not even installed, won't attempt to start it
+			return;
+		}
+
+		trace("Starting WebDriverAgent");
+		const webdriverPackageName = "com.facebook.WebDriverAgentRunner.xctrunner";
+		this.simctl("launch", this.simulatorUuid, webdriverPackageName);
+
+		// now we wait for wda to have a successful status
+		const wda = new WebDriverAgent("localhost", WDA_PORT);
+
+		// wait up to 10 seconds for wda to start
+		const timeout = +new Date() + 10 * 1000;
+		while (+new Date() < timeout) {
+			// cross fingers and see if wda is already running
+			if (await wda.isRunning()) {
+				trace("WebDriverAgent is now running");
+				return;
+			}
+
+			// wait 100ms before trying again
+			await new Promise(resolve => setTimeout(resolve, 100));
+		}
+
+		trace("Could not start WebDriverAgent in time, giving up");
+	}
+
 	private async wda(): Promise<WebDriverAgent> {
 		const wda = new WebDriverAgent("localhost", WDA_PORT);
 
 		if (!(await wda.isRunning())) {
-			throw new ActionableError("WebDriverAgent is not running on simulator, please see https://github.com/mobile-next/mobile-mcp/wiki/");
+			await this.startWda();
+			if (!(await wda.isRunning())) {
+				throw new ActionableError("WebDriverAgent is not running on simulator, please see https://github.com/mobile-next/mobile-mcp/wiki/");
+			}
+
+			// was successfully started
 		}
 
 		return wda;
@@ -58,7 +98,9 @@ export class Simctl implements Robot {
 	}
 
 	public async getScreenshot(): Promise<Buffer> {
-		return this.simctl("io", this.simulatorUuid, "screenshot", "-");
+		const wda = await this.wda();
+		return await wda.getScreenshot();
+		// alternative: return this.simctl("io", this.simulatorUuid, "screenshot", "-");
 	}
 
 	public async openUrl(url: string) {
@@ -75,84 +117,14 @@ export class Simctl implements Robot {
 		this.simctl("terminate", this.simulatorUuid, packageName);
 	}
 
-	public static parseIOSAppData(inputText: string): Array<AppInfo> {
-		const result: Array<AppInfo> = [];
-
-		enum ParseState {
-			LOOKING_FOR_APP,
-			IN_APP,
-			IN_PROPERTY
-		}
-
-		let state = ParseState.LOOKING_FOR_APP;
-		let currentApp: Partial<AppInfo> = {};
-		let appIdentifier = "";
-
-		const lines = inputText.split("\n");
-		for (let line of lines) {
-			line = line.trim();
-			if (line === "") {
-				continue;
-			}
-
-			switch (state) {
-				case ParseState.LOOKING_FOR_APP:
-					// look for app identifier pattern: "com.example.app" = {
-					const appMatch = line.match(/^"?([^"=]+)"?\s*=\s*\{/);
-					if (appMatch) {
-						appIdentifier = appMatch[1].trim();
-						currentApp = {
-							CFBundleIdentifier: appIdentifier,
-						};
-
-						state = ParseState.IN_APP;
-					}
-					break;
-
-				case ParseState.IN_APP:
-					if (line === "};") {
-						result.push(currentApp as AppInfo);
-						currentApp = {};
-						state = ParseState.LOOKING_FOR_APP;
-					} else {
-						// look for property: PropertyName = Value;
-						const propertyMatch = line.match(/^([^=]+)\s*=\s*(.+?);\s*$/);
-						if (propertyMatch) {
-							const propName = propertyMatch[1].trim();
-							let propValue = propertyMatch[2].trim();
-
-							// remove quotes if present (they're optional)
-							if (propValue.startsWith('"') && propValue.endsWith('"')) {
-								propValue = propValue.substring(1, propValue.length - 1);
-							}
-
-							// add property to current app
-							(currentApp as any)[propName] = propValue;
-						} else if (line.endsWith("{")) {
-							// nested property like GroupContainers = {
-							state = ParseState.IN_PROPERTY;
-						}
-					}
-					break;
-
-				case ParseState.IN_PROPERTY:
-					if (line === "};") {
-						// end of nested property
-						state = ParseState.IN_APP;
-					}
-
-					// skip content of nested properties, we don't care of those right now
-					break;
-			}
-		}
-
-		return result;
-	}
-
 	public async listApps(): Promise<InstalledApp[]> {
 		const text = this.simctl("listapps", this.simulatorUuid).toString();
-		const apps = Simctl.parseIOSAppData(text);
-		return apps.map(app => ({
+		const result = execFileSync("plutil", ["-convert", "json", "-o", "-", "-r", "-"], {
+			input: text,
+		});
+
+		const output = JSON.parse(result.toString()) as Record<string, AppInfo>;
+		return Object.values(output).map(app => ({
 			packageName: app.CFBundleIdentifier,
 			appName: app.CFBundleDisplayName,
 		}));
@@ -168,9 +140,14 @@ export class Simctl implements Robot {
 		return wda.sendKeys(keys);
 	}
 
-	public async swipe(direction: SwipeDirection) {
+	public async swipe(direction: SwipeDirection): Promise<void> {
 		const wda = await this.wda();
 		return wda.swipe(direction);
+	}
+
+	public async swipeFromCoordinate(x: number, y: number, direction: SwipeDirection, distance?: number): Promise<void> {
+		const wda = await this.wda();
+		return wda.swipeFromCoordinate(x, y, direction, distance);
 	}
 
 	public async tap(x: number, y: number) {
