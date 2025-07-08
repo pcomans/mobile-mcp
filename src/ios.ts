@@ -1,9 +1,8 @@
-import { execFileSync } from "child_process";
-import { Socket } from "net";
+import { Socket } from "node:net";
+import { execFileSync } from "node:child_process";
 
 import { WebDriverAgent } from "./webdriver-agent";
 import { ActionableError, Button, InstalledApp, Robot, ScreenSize, SwipeDirection, ScreenElement, Orientation } from "./robot";
-import { TempFileManager } from "./file-utils";
 
 const WDA_PORT = 8100;
 const IOS_TUNNEL_PORT = 60105;
@@ -118,6 +117,11 @@ export class IosRobot implements Robot {
 		await wda.swipe(direction);
 	}
 
+	public async swipeFromCoordinate(x: number, y: number, direction: SwipeDirection, distance?: number): Promise<void> {
+		const wda = await this.wda();
+		await wda.swipeFromCoordinate(x, y, direction, distance);
+	}
+
 	public async listApps(): Promise<InstalledApp[]> {
 		await this.assertTunnelRunning();
 
@@ -169,16 +173,17 @@ export class IosRobot implements Robot {
 	}
 
 	public async getScreenshot(): Promise<Buffer> {
-		await this.assertTunnelRunning();
+		const wda = await this.wda();
+		return await wda.getScreenshot();
 
-		return TempFileManager.withTempFile(
-			"screenshot",
-			"png",
-			async tmpFilename => {
-				await this.ios("screenshot", "--output", tmpFilename);
-				return TempFileManager.readTempFile(tmpFilename);
-			}
-		);
+		/* alternative:
+		await this.assertTunnelRunning();
+		const tmpFilename = path.join(tmpdir(), `screenshot-${randomBytes(8).toString("hex")}.png`);
+		await this.ios("screenshot", "--output", tmpFilename);
+		const buffer = readFileSync(tmpFilename);
+		unlinkSync(tmpFilename);
+		return buffer;
+		*/
 	}
 
 	public async setOrientation(orientation: Orientation): Promise<void> {
@@ -204,25 +209,25 @@ export class IosManager {
 		}
 	}
 
-	public async getDeviceName(deviceId: string): Promise<string> {
+	public getDeviceName(deviceId: string): string {
 		const output = execFileSync(getGoIosPath(), ["info", "--udid", deviceId]).toString();
 		const json: InfoCommandOutput = JSON.parse(output);
 		return json.DeviceName;
 	}
 
-	public async listDevices(): Promise<IosDevice[]> {
-		if (!(await this.isGoIosInstalled())) {
+	public listDevices(): IosDevice[] {
+		if (!this.isGoIosInstalled()) {
 			console.error("go-ios is not installed, no physical iOS devices can be detected");
 			return [];
 		}
 
 		const output = execFileSync(getGoIosPath(), ["list"]).toString();
 		const json: ListCommandOutput = JSON.parse(output);
-		const devices = json.deviceList.map(async device => ({
+		const devices = json.deviceList.map(device => ({
 			deviceId: device,
-			deviceName: await this.getDeviceName(device),
+			deviceName: this.getDeviceName(device),
 		}));
 
-		return Promise.all(devices);
+		return devices;
 	}
 }
